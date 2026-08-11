@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 description = "A lightweight, robust, asynchronous background job queue and persistence engine built for high-performance applications."
 license = "MIT"
-repository = "https://github.com/yourusername/snerd" # TODO: Update this with the real URL
+repository = "https://github.com/greyhands2/snerd-rust" # TODO: Update this with the real URL
 
 [dependencies]
 chrono = { version = "0.4.45", features = ["serde"] }
