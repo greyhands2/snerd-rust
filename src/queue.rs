@@ -1,8 +1,8 @@
+use chrono::Utc;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use std::time::Duration;
-use chrono::Utc;
+use tokio::sync::RwLock;
 
 use crate::file_store::FileStore;
 use crate::task::RetryableTask;
@@ -99,10 +99,10 @@ impl SnerdQueue {
             // In a real production system with blocking synchronous handlers,
             // we should spawn them using spawn_blocking to avoid starving the executor.
             let task_data = task.task_data.clone();
-            
-            let result = tokio::task::spawn_blocking(move || {
-                h(task_data)
-            }).await.unwrap_or_else(|e| Err(format!("Task panic: {:?}", e)));
+
+            let result = tokio::task::spawn_blocking(move || h(task_data))
+                .await
+                .unwrap_or_else(|e| Err(format!("Task panic: {:?}", e)));
 
             match result {
                 Ok(_) => {
@@ -121,9 +121,7 @@ impl SnerdQueue {
 
                         if let Some(mh) = max_handler {
                             let max_data = task.task_data.clone();
-                            let _ = tokio::task::spawn_blocking(move || {
-                                mh(max_data)
-                            }).await;
+                            let _ = tokio::task::spawn_blocking(move || mh(max_data)).await;
                         }
 
                         let _ = self.file_store.delete_task(&task.task_id);

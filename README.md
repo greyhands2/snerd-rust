@@ -2,6 +2,11 @@
 
 > *A blazingly fast, brutally simple, zero-dependency async background job engine for Rust.*
 
+[![Crates.io](https://img.shields.io/crates/v/snerd-rust.svg)](https://crates.io/crates/snerd-rust)
+[![Documentation](https://docs.rs/snerd-rust/badge.svg)](https://docs.rs/snerd-rust)
+[![CI](https://github.com/greyhands2/snerd-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/greyhands2/snerd-rust/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 If you are tired of wrestling with heavy, bloated background job frameworks like Redis, Postgres tables, or RabbitMQ just to send a few emails in the background... well, you are in the right place. 
 
 `snerd-rust` is an embedded, high-performance background task queue that lives entirely in a single, perfectly OS-locked, append-only `.log` file on your file system. It was designed to bring the aggressive concurrency and lightweight footprint of Golang's `snerd` over to Rust's heavily optimized asynchronous ecosystem.

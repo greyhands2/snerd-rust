@@ -79,13 +79,13 @@ impl RetryableTask {
 
     pub fn update_retry_config(&mut self, error_msg: Option<String>) {
         self.retry_count += 1;
-        
+
         // Calculate next retry time
         let seconds = (self.retry_after_hours * 3600.0) as i64;
         self.retry_after_time = Utc::now() + chrono::Duration::seconds(seconds);
-        
+
         self.last_error_obj = error_msg.clone();
-        
+
         if let Some(msg) = error_msg {
             self.last_job_error = Some(JobErrorReturn {
                 error_string: msg,
@@ -94,7 +94,7 @@ impl RetryableTask {
         } else {
             self.last_job_error = None;
         }
-        
+
         self.updated_at = Utc::now();
     }
 }
