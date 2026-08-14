@@ -19,6 +19,9 @@ async fn test_file_store_lifecycle() {
         r#"{"to": "test@example.com"}"#.to_string(),
         3,
         0.0,
+        None,
+        None,
+        None,
     );
 
     // Test Save
@@ -53,7 +56,7 @@ async fn test_queue_execution() {
     let file_path = temp_dir.path().join("queue_tasks.log");
 
     let store = FileStore::new(&file_path).unwrap();
-    let queue = SnerdQueue::new("test-queue", store);
+    let queue = SnerdQueue::new("test-queue", store, snerd_rust::rate_limiter::RateLimiter::new(&std::path::PathBuf::from(".")));
 
     let exec_counter = Arc::new(AtomicUsize::new(0));
     let exec_counter_clone = exec_counter.clone();
@@ -71,6 +74,9 @@ async fn test_queue_execution() {
         r#"{"val": 1}"#.to_string(),
         3,
         0.0, // Retry after 0 hours (immediate)
+        None,
+        None,
+        None,
     );
 
     queue.enqueue(task).unwrap();
@@ -87,7 +93,7 @@ async fn test_queue_retry_and_max() {
     let file_path = temp_dir.path().join("retry_tasks.log");
 
     let store = FileStore::new(&file_path).unwrap();
-    let queue = SnerdQueue::new("retry-queue", store.clone());
+    let queue = SnerdQueue::new("retry-queue", store.clone(), snerd_rust::rate_limiter::RateLimiter::new(&std::path::PathBuf::from(".")));
 
     let exec_counter = Arc::new(AtomicUsize::new(0));
     let exec_counter_clone = exec_counter.clone();
@@ -115,6 +121,9 @@ async fn test_queue_retry_and_max() {
         r#"{}"#.to_string(),
         2,   // Max retries = 2
         0.0, // Retry after 0 hours
+        None,
+        None,
+        None,
     );
 
     queue.enqueue(task).unwrap();
@@ -162,6 +171,9 @@ async fn test_concurrent_writes() {
                 "{}".to_string(),
                 1,
                 0.0,
+                None,
+                None,
+                None,
             );
             store_clone.save_task(&task).unwrap();
         }));
@@ -199,6 +211,9 @@ async fn test_corrupted_file_recovery() {
         "{}".to_string(),
         1,
         0.0,
+        None,
+        None,
+        None,
     );
     store.save_task(&task).unwrap();
 
@@ -214,7 +229,7 @@ async fn test_delayed_execution() {
     let temp_dir = tempfile::tempdir().unwrap();
     let file_path = temp_dir.path().join("delayed.log");
     let store = FileStore::new(&file_path).unwrap();
-    let queue = SnerdQueue::new("delayed-queue", store);
+    let queue = SnerdQueue::new("delayed-queue", store, snerd_rust::rate_limiter::RateLimiter::new(&std::path::PathBuf::from(".")));
 
     let exec_counter = Arc::new(AtomicUsize::new(0));
     let exec_counter_clone = exec_counter.clone();
@@ -232,6 +247,9 @@ async fn test_delayed_execution() {
         "{}".to_string(),
         3,
         1.0, // Delay by 1 hour
+        None,
+        None,
+        None,
     );
 
     // Artificially set the retry time to the future, as new tasks execute immediately by default
