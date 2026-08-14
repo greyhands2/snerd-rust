@@ -1,12 +1,13 @@
 use chrono::Utc;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, BinaryHeap};
+use tokio::sync::Semaphore;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::RwLock;
 
 use crate::file_store::FileStore;
 use crate::rate_limiter::RateLimiter;
-use crate::task::RetryableTask;
+use crate::task::{RetryableTask, PriorityTask};
 
 pub type TaskHandler = Arc<dyn Fn(String) -> Result<(), String> + Send + Sync>;
 pub type MaxRetryHandler = Arc<dyn Fn(String) -> Result<(), String> + Send + Sync>;
@@ -33,6 +34,7 @@ pub struct SnerdQueue {
     max_retry_handlers: Arc<RwLock<HashMap<String, MaxRetryHandler>>>,
     active_hashes: Arc<Mutex<HashSet<String>>>,
     executing_tasks: Arc<Mutex<HashSet<String>>>,
+    worker_semaphore: Arc<Semaphore>,
 }
 
 impl SnerdQueue {
@@ -56,6 +58,7 @@ impl SnerdQueue {
             max_retry_handlers: Arc::new(RwLock::new(HashMap::new())),
             active_hashes: Arc::new(Mutex::new(initial_hashes)),
             executing_tasks: Arc::new(Mutex::new(HashSet::new())),
+            worker_semaphore: Arc::new(Semaphore::new(100)), // Limit to 100 concurrent tasks
         }
     }
 
@@ -139,8 +142,17 @@ impl SnerdQueue {
         };
 
         let now = Utc::now();
-        for mut task in tasks {
+        let mut heap = BinaryHeap::new();
+        
+        for task in tasks {
             if task.retry_after_time <= now && task.deleted_at.is_none() {
+                heap.push(PriorityTask(task));
+            }
+        }
+
+        let available = self.worker_semaphore.available_permits();
+        for _ in 0..available {
+            if let Some(PriorityTask(mut task)) = heap.pop() {
                 if let Some(ref group) = task.rate_limit_group {
                     if let Some(limit) = task.max_per_minute {
                         match self.rate_limiter.check_and_increment(group, limit) {
@@ -162,10 +174,15 @@ impl SnerdQueue {
                     executing.insert(task.task_id.clone());
                 }
 
-                let q = self.clone();
-                tokio::spawn(async move {
-                    q.execute_task(task).await;
-                });
+                if let Ok(permit) = self.worker_semaphore.clone().try_acquire_owned() {
+                    let q = self.clone();
+                    tokio::spawn(async move {
+                        let _p = permit;
+                        q.execute_task(task).await;
+                    });
+                }
+            } else {
+                break;
             }
         }
     }
