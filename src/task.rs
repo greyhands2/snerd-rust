@@ -9,6 +9,15 @@ pub struct JobErrorReturn {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ProgressMessage {
+    #[serde(rename = "task_id")]
+    pub task_id: String,
+    
+    #[serde(rename = "data")]
+    pub data: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RetryableTask {
     #[serde(rename = "taskId")]
     pub task_id: String,

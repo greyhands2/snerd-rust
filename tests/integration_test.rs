@@ -22,6 +22,7 @@ async fn test_file_store_lifecycle() {
         None,
         None,
         None,
+        None,
     );
 
     // Test Save
@@ -77,6 +78,7 @@ async fn test_queue_execution() {
         None,
         None,
         None,
+        None,
     );
 
     queue.enqueue(task).unwrap();
@@ -121,6 +123,7 @@ async fn test_queue_retry_and_max() {
         r#"{}"#.to_string(),
         2,   // Max retries = 2
         0.0, // Retry after 0 hours
+        None,
         None,
         None,
         None,
@@ -174,7 +177,8 @@ async fn test_concurrent_writes() {
                 None,
                 None,
                 None,
-            );
+        None,
+    );
             store_clone.save_task(&task).unwrap();
         }));
     }
@@ -214,6 +218,7 @@ async fn test_corrupted_file_recovery() {
         None,
         None,
         None,
+        None,
     );
     store.save_task(&task).unwrap();
 
@@ -247,6 +252,7 @@ async fn test_delayed_execution() {
         "{}".to_string(),
         3,
         1.0, // Delay by 1 hour
+        None,
         None,
         None,
         None,

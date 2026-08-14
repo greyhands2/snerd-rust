@@ -7,7 +7,8 @@ use tokio::sync::RwLock;
 
 use crate::file_store::FileStore;
 use crate::rate_limiter::RateLimiter;
-use crate::task::{RetryableTask, PriorityTask};
+use crate::task::{RetryableTask, PriorityTask, ProgressMessage};
+use tokio::sync::broadcast;
 
 pub type TaskHandler = Arc<dyn Fn(String) -> Result<(), String> + Send + Sync>;
 pub type MaxRetryHandler = Arc<dyn Fn(String) -> Result<(), String> + Send + Sync>;
@@ -35,6 +36,7 @@ pub struct SnerdQueue {
     active_hashes: Arc<Mutex<HashSet<String>>>,
     executing_tasks: Arc<Mutex<HashSet<String>>>,
     worker_semaphore: Arc<Semaphore>,
+    pub progress_tx: broadcast::Sender<ProgressMessage>,
 }
 
 impl SnerdQueue {
@@ -50,6 +52,7 @@ impl SnerdQueue {
             }
         }
 
+        let (progress_tx, _) = broadcast::channel(1024);
         Self {
             name: name.to_string(),
             file_store,
@@ -59,7 +62,19 @@ impl SnerdQueue {
             active_hashes: Arc::new(Mutex::new(initial_hashes)),
             executing_tasks: Arc::new(Mutex::new(HashSet::new())),
             worker_semaphore: Arc::new(Semaphore::new(100)), // Limit to 100 concurrent tasks
+            progress_tx,
         }
+    }
+
+    pub fn subscribe_progress(&self) -> broadcast::Receiver<ProgressMessage> {
+        self.progress_tx.subscribe()
+    }
+
+    pub fn yield_progress(&self, task_id: &str, data: &str) {
+        let _ = self.progress_tx.send(ProgressMessage {
+            task_id: task_id.to_string(),
+            data: data.to_string(),
+        });
     }
 
     pub async fn register_task_handler<F>(&self, task_type: &str, handler: F)
