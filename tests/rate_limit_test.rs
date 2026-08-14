@@ -38,6 +38,7 @@ async fn test_rate_limiting() {
             1.0,
             Some("openai_api".to_string()),
             Some(2),
+            None,
         );
         queue.enqueue(task).unwrap();
     }
