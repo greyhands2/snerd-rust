@@ -1,11 +1,13 @@
-# ⚙️ snerd-rust
+<div align="center">
+  <img src="../snerdmq/assets/Designer-9.png" height="120" alt="Snerd-Rust Logo" />
+  <h1>⚙️ snerd-rust v0.2.0</h1>
+  <p>A blazingly fast, brutally simple, zero-dependency async background job engine for Rust.</p>
 
-> *A blazingly fast, brutally simple, zero-dependency async background job engine for Rust.*
-
-[![Crates.io](https://img.shields.io/crates/v/snerd-rust.svg)](https://crates.io/crates/snerd-rust)
-[![Documentation](https://docs.rs/snerd-rust/badge.svg)](https://docs.rs/snerd-rust)
-[![CI](https://github.com/greyhands2/snerd-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/greyhands2/snerd-rust/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+  [![Crates.io](https://img.shields.io/crates/v/snerd-rust.svg)](https://crates.io/crates/snerd-rust)
+  [![Documentation](https://docs.rs/snerd-rust/badge.svg)](https://docs.rs/snerd-rust)
+  [![CI](https://github.com/greyhands2/snerd-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/greyhands2/snerd-rust/actions/workflows/ci.yml)
+  [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+</div>
 
 If you are tired of wrestling with heavy, bloated background job frameworks like Redis, Postgres tables, or RabbitMQ just to send a few emails in the background... well, you are in the right place. 
 
@@ -15,11 +17,13 @@ No databases. No external daemons. No nonsense.
 
 ---
 
-## 🔥 Features
+## 🔥 v0.2.0 AI-Era Features
 * **Zero External Infrastructure**: You don't need a Redis cluster. Your tasks are persisted directly to `.snerdata/tasks/tasks.log` using standard filesystem I/O.
 * **Bulletproof File Locks**: Safely scales across multiple processes! We utilize OS-level file-locking boundaries (`flock`) to guarantee that your tasks are never corrupted, even if multiple instances of your app try to write simultaneously.
+* **Smart API Rate-Limiting**: Natively tracks `rate_limit_group` execution velocity to prevent 429 "Too Many Requests" API errors.
+* **Payload-Hashing Deduplication**: Automatically computes cryptographic hashes to drop duplicate tasks instantly.
+* **Dynamic Float Prioritization**: A native Binary Max-Heap bypasses standard FIFO rules for high urgency tasks.
 * **Asynchronous Tokio Core**: Built natively on top of `tokio`. Background workers process the queue without starving your main event loop.
-* **Aggressive Compaction**: Deleted tasks don't bloat your system. `snerd-rust` runs background log compactions automatically once your queue hits safe threshold limits.
 * **Dead-Letter Queue (DLQ)**: Built-in `maxRetries` limits and hooks to elegantly catch and bury poison-pill tasks.
 
 ---
@@ -30,7 +34,7 @@ Just add `snerd-rust` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-snerd-rust = "0.1.0"
+snerd-rust = "0.2.0"
 ```
 
 *Note: You will also need `tokio` (with full features) since snerd is entirely async.*
@@ -56,14 +60,14 @@ async fn main() {
     let queue = SnerdQueue::new("my-fast-queue", file_store);
 
     // 3. Register your Task Handler (The closure that does the actual work)
-    queue.register_task_handler("send_email", |data| {
-        println!("Sending email with payload: {}", data);
+    queue.register_task_handler("generate_ai_image", |data| {
+        println!("Generating with payload: {}", data);
         // ... do your heavy lifting here!
         Ok(()) // Return Err("...") to trigger a retry!
     }).await;
     
     // 4. (Optional) Register a Dead-Letter Handler for when retries run out
-    queue.register_max_retry_handler("send_email", |data| {
+    queue.register_max_retry_handler("generate_ai_image", |data| {
         println!("Task permanently failed! Payload: {}", data);
         Ok(())
     }).await;
@@ -73,16 +77,20 @@ async fn main() {
 
     // 6. Enqueue a task!
     let task = RetryableTask::new(
-        "unique-task-id-123".to_string(),
-        "send_email".to_string(), // Matches your handler string
-        r#"{"to": "john.wick@continental.com"}"#.to_string(), // JSON string payload
-        3, // Max retries
-        1.0, // Delay in hours for retries (e.g. 1.0 = wait 1 hour between failures)
+        "unique-task-id-123".to_string(), // ID
+        "generate_ai_image".to_string(),  // Type (matches handler)
+        r#"{"prompt": "A crab in space"}"#.to_string(), // JSON Payload
+        3,    // Max retries
+        1.0,  // Delay in hours for retries
+        Some("openai_api".to_string()), // rate_limit_group
+        Some(50),                       // max_per_minute
+        Some(true),                     // auto_dedupe
+        Some(0.95),                     // urgency_score
     );
 
     queue.enqueue(task).unwrap();
     
-    // Keep your app alive (or drop it into an Axum/Actix web framework!)
+    // Keep your app alive
     tokio::time::sleep(Duration::from_secs(10)).await;
 }
 ```
