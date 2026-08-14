@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="../snerdmq/assets/Designer-9.png" height="120" alt="Snerd-Rust Logo" />
+  <img src="./assets/Designer-9.png" height="120" alt="Snerd-Rust Logo" />
   <h1>⚙️ snerd-rust v0.2.0</h1>
   <p>A blazingly fast, brutally simple, zero-dependency async background job engine for Rust.</p>
 
