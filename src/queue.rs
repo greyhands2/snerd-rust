@@ -5,11 +5,24 @@ use std::time::Duration;
 use tokio::sync::RwLock;
 
 use crate::file_store::FileStore;
-use crate::task::RetryableTask;
 use crate::rate_limiter::RateLimiter;
+use crate::task::RetryableTask;
 
 pub type TaskHandler = Arc<dyn Fn(String) -> Result<(), String> + Send + Sync>;
 pub type MaxRetryHandler = Arc<dyn Fn(String) -> Result<(), String> + Send + Sync>;
+
+struct ExecutingGuard {
+    executing_tasks: Arc<Mutex<HashSet<String>>>,
+    task_id: String,
+}
+
+impl Drop for ExecutingGuard {
+    fn drop(&mut self) {
+        if let Ok(mut executing) = self.executing_tasks.lock() {
+            executing.remove(&self.task_id);
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct SnerdQueue {
@@ -19,6 +32,7 @@ pub struct SnerdQueue {
     task_handlers: Arc<RwLock<HashMap<String, TaskHandler>>>,
     max_retry_handlers: Arc<RwLock<HashMap<String, MaxRetryHandler>>>,
     active_hashes: Arc<Mutex<HashSet<String>>>,
+    executing_tasks: Arc<Mutex<HashSet<String>>>,
 }
 
 impl SnerdQueue {
@@ -33,7 +47,7 @@ impl SnerdQueue {
                 }
             }
         }
-        
+
         Self {
             name: name.to_string(),
             file_store,
@@ -41,6 +55,7 @@ impl SnerdQueue {
             task_handlers: Arc::new(RwLock::new(HashMap::new())),
             max_retry_handlers: Arc::new(RwLock::new(HashMap::new())),
             active_hashes: Arc::new(Mutex::new(initial_hashes)),
+            executing_tasks: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 
@@ -68,7 +83,6 @@ impl SnerdQueue {
         if let Some(ref hash) = task.payload_hash {
             if let Ok(mut hashes) = self.active_hashes.lock() {
                 if hashes.contains(hash) {
-                    // Duplicate found, drop silently
                     return Ok(());
                 }
                 hashes.insert(hash.clone());
@@ -89,6 +103,14 @@ impl SnerdQueue {
                         }
                     }
                 }
+            }
+
+            // Lock check before executing
+            if let Ok(mut executing) = self.executing_tasks.lock() {
+                if executing.contains(&task.task_id) {
+                    return Ok(());
+                }
+                executing.insert(task.task_id.clone());
             }
 
             let q = self.clone();
@@ -132,6 +154,14 @@ impl SnerdQueue {
                     }
                 }
 
+                // Lock check before executing
+                if let Ok(mut executing) = self.executing_tasks.lock() {
+                    if executing.contains(&task.task_id) {
+                        continue;
+                    }
+                    executing.insert(task.task_id.clone());
+                }
+
                 let q = self.clone();
                 tokio::spawn(async move {
                     q.execute_task(task).await;
@@ -141,14 +171,18 @@ impl SnerdQueue {
     }
 
     async fn execute_task(&self, mut task: RetryableTask) {
+        // Drop guard guarantees removal from executing_tasks
+        let _guard = ExecutingGuard {
+            executing_tasks: Arc::clone(&self.executing_tasks),
+            task_id: task.task_id.clone(),
+        };
+
         let handler = {
             let handlers = self.task_handlers.read().await;
             handlers.get(&task.task_type).cloned()
         };
 
         if let Some(h) = handler {
-            // In a real production system with blocking synchronous handlers,
-            // we should spawn them using spawn_blocking to avoid starving the executor.
             let task_data = task.task_data.clone();
 
             let result = tokio::task::spawn_blocking(move || h(task_data))
