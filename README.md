@@ -53,8 +53,15 @@ use std::time::Duration;
 
 #[tokio::main]
 async fn main() {
+    // Advanced: Distributed Scaling
+    // Point the embedded file store to your mounted shared network drive (e.g. AWS EFS)
+    let storage_path = "/mnt/aws-efs-shared-drive/snerd_tasks.log";
+    
+    // Or, for local single-server storage:
+    // let storage_path = ".snerdata/tasks/tasks.log";
+
     // 1. Initialize the Persistence Store
-    let file_store = FileStore::new(".snerdata/tasks/tasks.log").unwrap();
+    let file_store = FileStore::new(storage_path).unwrap();
     
     // 2. Create the Queue
     let queue = SnerdQueue::new("my-fast-queue", file_store);
