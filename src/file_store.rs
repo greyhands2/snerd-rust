@@ -172,7 +172,7 @@ impl FileStore {
             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
             .is_err()
         {
-            return Ok(()); // Already compacting
+            return Ok(()); // Already compacting. 
         }
 
         let temp_path = self.file_path.with_extension("tmp");
