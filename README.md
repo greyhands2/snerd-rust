@@ -93,6 +93,8 @@ async fn main() {
         Some(50),                       // max_per_minute
         Some(true),                     // auto_dedupe
         Some(0.95),                     // urgency_score
+        None,                           // execute_at
+        Some("1h".to_string()),         // cron: Runs every 1 hour!
     );
 
     queue.enqueue(task).unwrap();
