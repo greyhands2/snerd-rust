@@ -17,7 +17,7 @@ No databases. No external daemons. No nonsense.
 
 ---
 
-## 🔥 v0.2.1 AI-Era Features
+## 🔥 v0.2.1 AI Features
 * **Zero External Infrastructure**: You don't need a Redis cluster. Your tasks are persisted directly to `.snerdata/tasks/tasks.log` using standard filesystem I/O.
 * **Bulletproof File Locks**: Safely scales across multiple processes! We utilize OS-level file-locking boundaries (`flock`) to guarantee that your tasks are never corrupted, even if multiple instances of your app try to write simultaneously.
 * **Smart API Rate-Limiting**: Natively tracks `rate_limit_group` execution velocity to prevent 429 "Too Many Requests" API errors.

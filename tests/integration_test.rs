@@ -1,3 +1,8 @@
+
+use std::sync::Mutex;
+use chrono::Utc;
+use snerd_rust::rate_limiter::RateLimiter;
+use tempfile::tempdir;
 use snerd_rust::file_store::FileStore;
 use snerd_rust::queue::SnerdQueue;
 use snerd_rust::task::RetryableTask;
@@ -19,6 +24,8 @@ async fn test_file_store_lifecycle() {
         r#"{"to": "test@example.com"}"#.to_string(),
         3,
         0.0,
+        None,
+        None,
         None,
         None,
         None,
@@ -79,6 +86,8 @@ async fn test_queue_execution() {
         None,
         None,
         None,
+        None,
+        None,
     );
 
     queue.enqueue(task).unwrap();
@@ -123,6 +132,8 @@ async fn test_queue_retry_and_max() {
         r#"{}"#.to_string(),
         2,   // Max retries = 2
         0.0, // Retry after 0 hours
+        None,
+        None,
         None,
         None,
         None,
@@ -178,6 +189,8 @@ async fn test_concurrent_writes() {
                 None,
                 None,
         None,
+        None,
+        None,
     );
             store_clone.save_task(&task).unwrap();
         }));
@@ -219,6 +232,8 @@ async fn test_corrupted_file_recovery() {
         None,
         None,
         None,
+        None,
+        None,
     );
     store.save_task(&task).unwrap();
 
@@ -256,6 +271,8 @@ async fn test_delayed_execution() {
         None,
         None,
         None,
+        None,
+        None,
     );
 
     // Artificially set the retry time to the future, as new tasks execute immediately by default
@@ -273,4 +290,57 @@ async fn test_delayed_execution() {
 
     // Ensure it was NEVER executed
     assert_eq!(exec_counter.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn test_cron_rescheduling() {
+    let temp_dir = tempdir().unwrap();
+    let file_store = FileStore::new(&temp_dir.path().join("tasks.log")).unwrap();
+    let rate_limiter = RateLimiter::new(&temp_dir.path().join("tasks.log"));
+    let queue = Arc::new(SnerdQueue::new("test-queue-cron", file_store, rate_limiter));
+
+    let executed = Arc::new(Mutex::new(false));
+    let exec_clone = executed.clone();
+
+    queue
+        .register_task_handler("cron-task", move |_data| {
+            let e = exec_clone.clone();
+            *e.lock().unwrap() = true;
+            Ok(())
+        })
+        .await;
+
+    // Cron for every second
+    let mut task = RetryableTask::new(
+        "cron-1".to_string(),
+        "cron-task".to_string(),
+        "{}".to_string(),
+        3,
+        1.0,
+        None,
+        None,
+        None,
+        None,
+        None,
+        Some("* * * * * *".to_string()),
+    );
+    
+    // Hack execute_at to be now so it runs immediately the first time
+    task.execute_at = Utc::now();
+    
+    queue.enqueue(task.clone()).unwrap();
+
+    // Start processor
+    queue.start_processor(Duration::from_millis(100)).await;
+
+    // Wait for execution
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    assert!(*executed.lock().unwrap(), "Cron task should have executed once");
+    
+    // Check if it was rescheduled instead of deleted
+    let tasks = queue.file_store.read_tasks().unwrap();
+    let saved_task = tasks.iter().find(|t| t.task_id == "cron-1" && t.deleted_at.is_none()).expect("Task should be rescheduled, not deleted");
+    
+    assert!(saved_task.execute_at > Utc::now() || saved_task.execute_at > task.created_at, "execute_at should be advanced to the next cron tick");
 }

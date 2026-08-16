@@ -40,6 +40,8 @@ async fn test_rate_limiting() {
             Some(2),
             None,
         None,
+        None,
+        None,
     );
         queue.enqueue(task).unwrap();
     }
