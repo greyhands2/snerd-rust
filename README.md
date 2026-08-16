@@ -95,6 +95,7 @@ async fn main() {
         Some(0.95),                     // urgency_score
         None,                           // execute_at
         Some("1h".to_string()),         // cron: Runs every 1 hour!
+        Some("https://api.example.com/webhook".to_string()), // webhook_url
     );
 
     queue.enqueue(task).unwrap();
@@ -114,6 +115,12 @@ To power complex AI workflows, tasks can now be configured with advanced orchest
 * **`urgency_score` (`float`)**: A value (e.g. `0.99`) used to bypass the standard FIFO queue. SnerdMQ uses a true Binary Max-Heap to continually float tasks with the highest urgency score to the very front of the execution line. Standard tasks default to `0.0`.
 * **`rate_limit_group` (`string`)**: A custom string (e.g. `"openai_api"` or `"db_writes"`) that groups tasks together for backpressure control.
 * **`max_per_minute` (`int`)**: Used in conjunction with `rate_limit_group`. If the queue processes more tasks in this group than the allowed limit within a 60-second rolling window, further tasks in this group are temporarily paused. This natively prevents 429 "Too Many Requests" errors when bursting third-party APIs.
+* **`webhook_url` (`string`)**: By providing a webhook URL, SnerdQueue will completely bypass your local Rust closures and dispatch the task payload via an HTTP POST request directly to the specified URL.
+
+### 🌐 HTTP Webhooks (Serverless Execution)
+You can configure a task to execute externally via an HTTP POST request. By setting a `webhook_url`, the internal background processor will skip any registered handlers (`queue.register_task_handler`) and directly invoke the HTTP endpoint.
+
+If the HTTP endpoint returns a non-200 status code, it triggers a retry. If it permanently fails (reaches `max_retries`), the Dead Letter Queue event is automatically fired via a final HTTP POST to the same `webhook_url` but with the header `X-SnerdMQ-Event: MaxRetriesReached`.
 
 ## 🧠 Architecture Details
 
