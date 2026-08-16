@@ -4,6 +4,7 @@ use tokio::sync::Semaphore;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::RwLock;
+use serde_json::json;
 
 use crate::file_store::FileStore;
 use crate::rate_limiter::RateLimiter;
@@ -219,66 +220,114 @@ impl SnerdQueue {
             task_id: task.task_id.clone(),
         };
 
-        let handler = {
-            let handlers = self.task_handlers.read().await;
-            handlers.get(&task.task_type).cloned()
+        // Build the execution result — either via webhook HTTP call or local handler
+        let result: Result<(), String> = if let Some(ref url) = task.webhook_url.clone() {
+            // --- Webhook Path ---
+            let payload = json!({
+                "taskId": task.task_id,
+                "taskType": task.task_type,
+                "data": task.task_data,
+            });
+            let url = url.clone();
+            tokio::task::spawn_blocking(move || {
+                let rt = tokio::runtime::Handle::current();
+                rt.block_on(async {
+                    match reqwest::Client::new()
+                        .post(&url)
+                        .header("Content-Type", "application/json")
+                        .header("X-SnerdMQ-Event", "Execute")
+                        .json(&payload)
+                        .send()
+                        .await
+                    {
+                        Ok(resp) if resp.status().is_success() => Ok(()),
+                        Ok(resp) => Err(format!("Webhook returned non-2xx status: {}", resp.status())),
+                        Err(e) => Err(format!("Webhook request failed: {}", e)),
+                    }
+                })
+            })
+            .await
+            .unwrap_or_else(|e| Err(format!("Webhook task panic: {:?}", e)))
+        } else {
+            // --- Local Handler Path ---
+            let handler = {
+                let handlers = self.task_handlers.read().await;
+                handlers.get(&task.task_type).cloned()
+            };
+            if let Some(h) = handler {
+                let task_data = task.task_data.clone();
+                tokio::task::spawn_blocking(move || h(task_data))
+                    .await
+                    .unwrap_or_else(|e| Err(format!("Task panic: {:?}", e)))
+            } else {
+                return; // No handler and no webhook — nothing to do
+            }
         };
 
-        if let Some(h) = handler {
-            let task_data = task.task_data.clone();
-
-            let result = tokio::task::spawn_blocking(move || h(task_data))
-                .await
-                .unwrap_or_else(|e| Err(format!("Task panic: {:?}", e)));
-
-            match result {
-                Ok(_) => {
-                    let mut rescheduled = false;
-                    if let Some(ref cron_expr) = task.cron_expression {
-                        use cron::Schedule;
-                        use std::str::FromStr;
-                        if let Ok(schedule) = Schedule::from_str(cron_expr) {
-                            if let Some(next) = schedule.upcoming(Utc).next() {
-                                task.execute_at = next;
-                                task.retry_count = 0;
-                                task.last_error_obj = None;
-                                task.last_job_error = None;
-                                let _ = self.file_store.save_task(&task);
-                                rescheduled = true;
-                            }
-                        }
-                    }
-                    
-                    if !rescheduled {
-                        let _ = self.file_store.delete_task(&task.task_id);
-                        if let Some(ref hash) = task.payload_hash {
-                            if let Ok(mut hashes) = self.active_hashes.lock() {
-                                hashes.remove(hash);
-                            }
+        match result {
+            Ok(_) => {
+                let mut rescheduled = false;
+                if let Some(ref cron_expr) = task.cron_expression {
+                    use cron::Schedule;
+                    use std::str::FromStr;
+                    if let Ok(schedule) = Schedule::from_str(cron_expr) {
+                        if let Some(next) = schedule.upcoming(Utc).next() {
+                            task.execute_at = next;
+                            task.retry_count = 0;
+                            task.last_error_obj = None;
+                            task.last_job_error = None;
+                            let _ = self.file_store.save_task(&task);
+                            rescheduled = true;
                         }
                     }
                 }
-                Err(e) => {
-                    if task.retry_count < task.max_retries {
-                        task.update_retry_config(Some(e));
-                        let _ = self.file_store.save_task(&task);
+
+                if !rescheduled {
+                    let _ = self.file_store.delete_task(&task.task_id);
+                    if let Some(ref hash) = task.payload_hash {
+                        if let Ok(mut hashes) = self.active_hashes.lock() {
+                            hashes.remove(hash);
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                if task.retry_count < task.max_retries {
+                    task.update_retry_config(Some(e));
+                    let _ = self.file_store.save_task(&task);
+                } else {
+                    // Max retries reached — fire DLQ webhook or local max retry handler
+                    if let Some(ref url) = task.webhook_url.clone() {
+                        let payload = json!({
+                            "taskId": task.task_id,
+                            "taskType": task.task_type,
+                            "data": task.task_data,
+                        });
+                        let url = url.clone();
+                        tokio::spawn(async move {
+                            let _ = reqwest::Client::new()
+                                .post(&url)
+                                .header("Content-Type", "application/json")
+                                .header("X-SnerdMQ-Event", "MaxRetriesReached")
+                                .json(&payload)
+                                .send()
+                                .await;
+                        });
                     } else {
-                        // Max retries reached
                         let max_handler = {
                             let max_handlers = self.max_retry_handlers.read().await;
                             max_handlers.get(&task.task_type).cloned()
                         };
-
                         if let Some(mh) = max_handler {
                             let max_data = task.task_data.clone();
                             let _ = tokio::task::spawn_blocking(move || mh(max_data)).await;
                         }
+                    }
 
-                        let _ = self.file_store.delete_task(&task.task_id);
-                        if let Some(ref hash) = task.payload_hash {
-                            if let Ok(mut hashes) = self.active_hashes.lock() {
-                                hashes.remove(hash);
-                            }
+                    let _ = self.file_store.delete_task(&task.task_id);
+                    if let Some(ref hash) = task.payload_hash {
+                        if let Ok(mut hashes) = self.active_hashes.lock() {
+                            hashes.remove(hash);
                         }
                     }
                 }

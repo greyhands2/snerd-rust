@@ -39,10 +39,11 @@ async fn test_rate_limiting() {
             Some("openai_api".to_string()),
             Some(2),
             None,
-        None,
-        None,
-        None,
-    );
+            None,
+            None,
+            None,
+            None, // webhook_url
+        );
         queue.enqueue(task).unwrap();
     }
 
