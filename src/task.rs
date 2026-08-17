@@ -73,6 +73,9 @@ pub struct RetryableTask {
     #[serde(rename = "webhookUrl", skip_serializing_if = "Option::is_none")]
     pub webhook_url: Option<String>,
 
+    #[serde(rename = "maxExecutionSeconds", skip_serializing_if = "Option::is_none")]
+    pub max_execution_seconds: Option<u64>,
+
     #[serde(skip, default = "Utc::now")]
     pub created_at: DateTime<Utc>,
 
@@ -94,6 +97,7 @@ impl RetryableTask {
         execute_at_opt: Option<String>,
         cron_opt: Option<String>,
         webhook_url: Option<String>,
+        max_execution_seconds: Option<u64>,
     ) -> Self {
         let now = Utc::now();
 
@@ -143,6 +147,7 @@ impl RetryableTask {
             execute_at,
             cron_expression: parsed_cron,
             webhook_url,
+            max_execution_seconds,
             created_at: now,
             updated_at: now,
         }

@@ -232,7 +232,13 @@ impl SnerdQueue {
             tokio::task::spawn_blocking(move || {
                 let rt = tokio::runtime::Handle::current();
                 rt.block_on(async {
-                    match reqwest::Client::new()
+                    let mut client_builder = reqwest::Client::builder();
+                    if let Some(secs) = task.max_execution_seconds {
+                        client_builder = client_builder.timeout(std::time::Duration::from_secs(secs));
+                    }
+                    let client = client_builder.build().unwrap_or_else(|_| reqwest::Client::new());
+                    
+                    match client
                         .post(&url)
                         .header("Content-Type", "application/json")
                         .header("X-SnerdMQ-Event", "Execute")
@@ -242,7 +248,13 @@ impl SnerdQueue {
                     {
                         Ok(resp) if resp.status().is_success() => Ok(()),
                         Ok(resp) => Err(format!("Webhook returned non-2xx status: {}", resp.status())),
-                        Err(e) => Err(format!("Webhook request failed: {}", e)),
+                        Err(e) => {
+                            if e.is_timeout() {
+                                Err(format!("Webhook execution timed out after {} seconds", task.max_execution_seconds.unwrap_or(0)))
+                            } else {
+                                Err(format!("Webhook request failed: {}", e))
+                            }
+                        }
                     }
                 })
             })
@@ -256,9 +268,17 @@ impl SnerdQueue {
             };
             if let Some(h) = handler {
                 let task_data = task.task_data.clone();
-                tokio::task::spawn_blocking(move || h(task_data))
-                    .await
-                    .unwrap_or_else(|e| Err(format!("Task panic: {:?}", e)))
+                let fut = tokio::task::spawn_blocking(move || h(task_data));
+                
+                if let Some(secs) = task.max_execution_seconds {
+                    match tokio::time::timeout(std::time::Duration::from_secs(secs), fut).await {
+                        Ok(Ok(res)) => res,
+                        Ok(Err(e)) => Err(format!("Task panic: {:?}", e)),
+                        Err(_) => Err(format!("Task execution timed out after {} seconds", secs)),
+                    }
+                } else {
+                    fut.await.unwrap_or_else(|e| Err(format!("Task panic: {:?}", e)))
+                }
             } else {
                 return; // No handler and no webhook — nothing to do
             }
