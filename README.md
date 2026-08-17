@@ -122,6 +122,12 @@ You can configure a task to execute externally via an HTTP POST request. By sett
 
 If the HTTP endpoint returns a non-200 status code, it triggers a retry. If it permanently fails (reaches `max_retries`), the Dead Letter Queue event is automatically fired via a final HTTP POST to the same `webhook_url` but with the header `X-SnerdMQ-Event: MaxRetriesReached`.
 
+### 🕒 Cron Jobs vs. Retryable Jobs
+When using the scheduling features, it is important to understand the difference between Cron and Retry behaviors:
+> - **A Cron Job** is a *Repeatable Job* that executes again **only after a success**, on a fixed schedule.
+> - **A Retryable Job** is a *Recovery Job* that executes again **only after a failure**, attempting to recover using the `retry_after_hours` backoff.
+> - **Combined:** If a Cron Job fails, it temporarily uses `retry_after_hours` to retry until it recovers. Once it succeeds, it goes back to ticking on its standard cron schedule!
+
 ## 🧠 Architecture Details
 
 `snerd-rust` utilizes an **Append-Only Log Model** to achieve massive write speeds.
