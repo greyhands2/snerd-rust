@@ -115,7 +115,12 @@ To power complex AI workflows, tasks can now be configured with advanced orchest
 * **`urgency_score` (`float`)**: A value (e.g. `0.99`) used to bypass the standard FIFO queue. SnerdMQ uses a true Binary Max-Heap to continually float tasks with the highest urgency score to the very front of the execution line. Standard tasks default to `0.0`.
 * **`rate_limit_group` (`string`)**: A custom string (e.g. `"openai_api"` or `"db_writes"`) that groups tasks together for backpressure control.
 * **`max_per_minute` (`int`)**: Used in conjunction with `rate_limit_group`. If the queue processes more tasks in this group than the allowed limit within a 60-second rolling window, further tasks in this group are temporarily paused. This natively prevents 429 "Too Many Requests" errors when bursting third-party APIs.
-* **`webhook_url` (`string`)**: By providing a webhook URL, SnerdQueue will completely bypass your local Rust closures and dispatch the task payload via an HTTP POST request directly to the specified URL.
+| `cron` | `Option<String>` | `None` | Optional cron expression (e.g. `"0 * * * *"`, `"2h"`, `"10m"`) for recurring jobs. |
+| `webhook_url` | `Option<String>` | `None` | Optional webhook URL to send the payload to instead of executing locally. |
+| `max_execution_seconds` | `Option<u64>` | `None` | Optional hard timeout in seconds. If execution takes longer, the worker forcefully kills it. |
+
+### Note on Hard Timeouts (`max_execution_seconds`)
+When `max_execution_seconds` is provided, the Rust engine wraps the execution in a `tokio::time::timeout`. If the task execution takes longer than the timeout, the engine will cancel the task, free up the worker slot, and mark the execution as failed (it will be retried if `max_retries` allows).
 
 ### 🌐 HTTP Webhooks (Serverless Execution)
 You can configure a task to execute externally via an HTTP POST request. By setting a `webhook_url`, the internal background processor will skip any registered handlers (`queue.register_task_handler`) and directly invoke the HTTP endpoint.
@@ -123,10 +128,12 @@ You can configure a task to execute externally via an HTTP POST request. By sett
 If the HTTP endpoint returns a non-200 status code, it triggers a retry. If it permanently fails (reaches `max_retries`), the Dead Letter Queue event is automatically fired via a final HTTP POST to the same `webhook_url` but with the header `X-SnerdMQ-Event: MaxRetriesReached`.
 
 ### 🕒 Cron Jobs vs. Retryable Jobs
-When using the scheduling features, it is important to understand the difference between Cron and Retry behaviors:
 > - **A Cron Job** is a *Repeatable Job* that executes again **only after a success**, on a fixed schedule.
 > - **A Retryable Job** is a *Recovery Job* that executes again **only after a failure**, attempting to recover using the `retry_after_hours` backoff.
 > - **Combined:** If a Cron Job fails, it temporarily uses `retry_after_hours` to retry until it recovers. Once it succeeds, it goes back to ticking on its standard cron schedule!
+
+### ☠️ Dead Letter Queue (Handling Permanent Failures)
+The DLQ captures tasks that have exhausted all `maxRetries`. You can define a custom global or task-specific handler using `queue.register_max_retry_handler`. This is critical for alerting or manual intervention when a background process consistently fails.
 
 ## 🧠 Architecture Details
 
