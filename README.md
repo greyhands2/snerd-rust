@@ -1,6 +1,6 @@
 <div align="center">
   <img src="./assets/Designer-9.png" height="120" alt="Snerd-Rust Logo" />
-  <h1>⚙️ snerd-rust v0.2.1</h1>
+  <h1>⚙️ snerd-rust v0.2.3</h1>
   <p>A blazingly fast, brutally simple, zero-dependency async background job engine for Rust.</p>
 
   [![Crates.io](https://img.shields.io/crates/v/snerd-rust.svg)](https://crates.io/crates/snerd-rust)
@@ -17,7 +17,7 @@ No databases. No external daemons. No nonsense.
 
 ---
 
-## 🔥 v0.2.1 AI Features
+## 🔥 v0.2.3 AI Features
 * **Zero External Infrastructure**: You don't need a Redis cluster. Your tasks are persisted directly to `.snerdata/tasks/tasks.log` using standard filesystem I/O.
 * **Bulletproof File Locks**: Safely scales across multiple processes! We utilize OS-level file-locking boundaries (`flock`) to guarantee that your tasks are never corrupted, even if multiple instances of your app try to write simultaneously.
 * **Smart API Rate-Limiting**: Natively tracks `rate_limit_group` execution velocity to prevent 429 "Too Many Requests" API errors.
@@ -34,7 +34,7 @@ Just add `snerd-rust` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-snerd-rust = "0.2.1"
+snerd-rust = "0.2.3"
 ```
 
 *Note: You will also need `tokio` (with full features) since snerd is entirely async.*
@@ -108,7 +108,7 @@ async fn main() {
 ---
 
 
-### ⚙️ Advanced Task Configuration (v0.2.1)
+### ⚙️ Advanced Task Configuration (v0.2.3)
 To power complex AI workflows, tasks can now be configured with advanced orchestration parameters:
 
 * **`auto_dedupe` (`bool`)**: If set to `true`, the daemon computes a cryptographic hash of the `task_type` and `task_data`. If an identical payload is currently sitting in the queue pending execution, this new task is silently dropped. Excellent for preventing duplicate generative AI requests from trigger-happy users!
