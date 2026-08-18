@@ -72,6 +72,10 @@ impl FileStore {
         Ok(())
     }
 
+    pub fn file_path(&self) -> &Path {
+        self.file_path.as_ref()
+    }
+
     pub fn save_task(&self, task: &RetryableTask) -> std::io::Result<()> {
         let _lock = self.file_lock.write().unwrap();
 

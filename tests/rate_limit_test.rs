@@ -43,6 +43,7 @@ async fn test_rate_limiting() {
             None,
             None,
             None, // webhook_url
+            None, // max_execution_seconds
         );
         queue.enqueue(task).unwrap();
     }
