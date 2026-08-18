@@ -5,7 +5,7 @@
 
   [![Crates.io](https://img.shields.io/crates/v/snerd-rust.svg)](https://crates.io/crates/snerd-rust)
   [![Documentation](https://docs.rs/snerd-rust/badge.svg)](https://docs.rs/snerd-rust)
-  [![CI](https://github.com/greyhands2/snerd-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/greyhands2/snerd-rust/actions/workflows/ci.yml)
+  [![CI](https://github.com/speed-nerd/snerd-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/speed-nerd/snerd-rust/actions/workflows/ci.yml)
   [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 </div>
 
