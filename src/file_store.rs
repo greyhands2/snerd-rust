@@ -77,6 +77,13 @@ impl FileStore {
     }
 
     pub fn save_task(&self, task: &RetryableTask) -> std::io::Result<()> {
+        self.save_task_inner(task, true)
+    }
+
+    /// Internal save with option to skip compaction check.
+    /// delete_task passes false to prevent compaction cascades when
+    /// many tasks complete concurrently.
+    fn save_task_inner(&self, task: &RetryableTask, check_compact: bool) -> std::io::Result<()> {
         let _lock = self.file_lock.write().unwrap();
 
         if let Some(parent) = self.file_path.parent() {
@@ -91,6 +98,7 @@ impl FileStore {
         let json_str = serde_json::to_string(task)?;
         writeln!(file, "{}", json_str)?;
         file.sync_all()?;
+        drop(file);
 
         let is_deleted = task.deleted_at.is_some();
         
@@ -112,7 +120,7 @@ impl FileStore {
             }
         }
 
-        if self.should_compact() {
+        if check_compact && self.should_compact() {
             let fs_clone = self.clone();
             tokio::spawn(async move {
                 let _ = fs_clone.compact_log();
@@ -145,7 +153,9 @@ impl FileStore {
         
         if let Some(mut task) = task_opt {
             task.mark_deleted();
-            self.save_task(&task)?;
+            // Skip compaction check on delete to prevent cascading compaction
+            // when many tasks complete concurrently (which would empty the log).
+            self.save_task_inner(&task, false)?;
         }
         Ok(())
     }

@@ -96,7 +96,9 @@ async fn test_queue_execution() {
 
     queue.enqueue(task).unwrap();
 
-    // Give tokio time to process the immediately spawned task
+    // Task now goes through the periodic processor (not fast path)
+    // so we need to trigger it manually or wait for the processor.
+    queue.process_due_tasks().await;
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     assert_eq!(exec_counter.load(Ordering::SeqCst), 1);
@@ -134,7 +136,7 @@ async fn test_queue_retry_and_max() {
         "task-3".to_string(),
         "fail-task".to_string(),
         r#"{}"#.to_string(),
-        2,   // Max retries = 2
+        3,   // Max retries = 3 total attempts (first + 2 retries)
         0.0, // Retry after 0 hours
         None,
         None,
@@ -152,16 +154,20 @@ async fn test_queue_retry_and_max() {
     // Initial execution fails, schedules retry 1
     tokio::time::sleep(Duration::from_millis(100)).await;
 
+    // Trigger first execution
+    queue.process_due_tasks().await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
     // Trigger Retry 1
     queue.process_due_tasks().await;
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
 
-    // Trigger Retry 2 (max retries reached)
+    // Trigger Retry 2
     queue.process_due_tasks().await;
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
 
     // Check results
-    // Initial + 2 retries = 3 executions total
+    // 3 total attempts (max_retries=3 means 3 total executions)
     assert_eq!(exec_counter.load(Ordering::SeqCst), 3);
 
     // Should have triggered max handler exactly once

@@ -1,6 +1,6 @@
 <div align="center">
   <img src="./assets/Designer-9.png" height="120" alt="Snerd-Rust Logo" />
-  <h1>⚙️ snerd-rust v0.2.3</h1>
+  <h1>⚙️ snerd-rust v0.2.4</h1>
   <p>A blazingly fast, brutally simple, zero-infrastructure async background job engine for Rust.</p>
 
   [![Crates.io](https://img.shields.io/crates/v/snerd-rust.svg)](https://crates.io/crates/snerd-rust)
@@ -38,7 +38,7 @@ Just add `snerd-rust` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-snerd-rust = "0.2.3"
+snerd-rust = "0.2.4"
 tokio = { version = "1", features = ["full"] }
 ```
 
