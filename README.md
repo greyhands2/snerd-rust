@@ -7,6 +7,7 @@
   [![Documentation](https://docs.rs/snerd-rust/badge.svg)](https://docs.rs/snerd-rust)
   [![CI](https://github.com/speed-nerd/snerd-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/speed-nerd/snerd-rust/actions/workflows/ci.yml)
   [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+  [![Docs](https://img.shields.io/badge/docs-speed--nerd.github.io-blue)](https://speed-nerd.github.io/docs/)
 </div>
 
 If you are tired of wrestling with heavy, bloated background job frameworks like Redis, Postgres tables, or RabbitMQ just to send a few emails in the background... well, you are in the right place.
