@@ -1,5 +1,7 @@
 use chrono::Utc;
+use fs3::FileExt;
 use std::collections::{HashMap, HashSet, BinaryHeap};
+use std::fs::{File, OpenOptions};
 use tokio::sync::Semaphore;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -48,10 +50,52 @@ pub struct SnerdQueue {
     shared_pq: Arc<Mutex<BinaryHeap<PriorityTask>>>,
     /// Number of active dispatcher loops (prevents duplicates).
     dispatcher_count: Arc<std::sync::atomic::AtomicUsize>,
+    /// Exclusive OS-level lock on the task log, held for the queue's lifetime.
+    /// Guarantees a single processor per storage file. Never read directly;
+    /// keeping the handle alive is what keeps the lock held.
+    _storage_lock: Arc<File>,
 }
 
 impl SnerdQueue {
     pub fn new(name: &str, file_store: FileStore, rate_limiter: RateLimiter) -> Self {
+        // Acquire exclusive ownership of the task log before anything else.
+        // Two processors on the same file would race and double-execute tasks,
+        // so a second queue on the same storage fails fast instead. The OS
+        // releases the lock automatically when the file is closed/exits.
+        let log_path = file_store.file_path().to_path_buf();
+        if let Some(parent) = log_path.parent() {
+            std::fs::create_dir_all(parent).unwrap_or_else(|e| {
+                panic!(
+                    "[Snerd] ERROR: Could not create storage directory '{}': {}",
+                    parent.display(),
+                    e
+                )
+            });
+        }
+        let mut lock_path = log_path.clone().into_os_string();
+        lock_path.push(".lock");
+        let lock_file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(false)
+            .open(&lock_path)
+            .unwrap_or_else(|e| {
+                panic!(
+                    "[Snerd] ERROR: Failed to open lock file '{}': {}",
+                    std::path::PathBuf::from(&lock_path).display(),
+                    e
+                )
+            });
+        if lock_file.try_lock_exclusive().is_err() {
+            panic!(
+                "[Snerd] ERROR: Another queue instance is already running on storage '{}'. \
+                 Use a single queue instance per storage file (register all your task types on it), \
+                 or create a FileStore with a different path. (lock file: {})",
+                log_path.display(),
+                std::path::PathBuf::from(&lock_path).display()
+            );
+        }
+
         let mut initial_hashes = HashSet::new();
         if let Ok(tasks) = file_store.read_tasks() {
             for task in tasks {
@@ -78,6 +122,7 @@ impl SnerdQueue {
             progress_tx,
             shared_pq: Arc::new(Mutex::new(BinaryHeap::new())),
             dispatcher_count: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            _storage_lock: Arc::new(lock_file),
         }
     }
 

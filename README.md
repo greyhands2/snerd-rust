@@ -1,6 +1,6 @@
 <div align="center">
   <img src="./assets/Designer-9.png" height="120" alt="Snerd-Rust Logo" />
-  <h1>⚙️ snerd-rust v0.2.4</h1>
+  <h1>⚙️ snerd-rust v0.2.5</h1>
   <p>A blazingly fast, brutally simple, zero-infrastructure async background job engine for Rust.</p>
 
   [![Crates.io](https://img.shields.io/crates/v/snerd-rust.svg)](https://crates.io/crates/snerd-rust)
@@ -39,7 +39,7 @@ Just add `snerd-rust` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-snerd-rust = "0.2.4"
+snerd-rust = "0.2.5"
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -217,13 +217,114 @@ tokio::spawn(async move {
 
 ---
 
-## 🌍 Advanced: Distributed Scaling
+## 🧩 Queue Topology: One Queue or Many?
 
-By default you point the `FileStore` at a local file (`.snerdata/tasks/tasks.log`). If you have multiple Rust servers behind a load balancer and want them to share the exact same queue, mount a **Shared Network Drive** (like AWS EFS or NFS) on all servers and pass the shared path to `FileStore::new` — OS-level file locking keeps concurrent writers safe:
+### ✅ Recommended: one queue, all job types (singleton)
+
+The recommended pattern is **one queue instance per application**: register every job type on it and serve a single shared dashboard:
 
 ```rust
-let file_store = FileStore::new("/mnt/aws-efs-shared-drive/snerd_tasks.log").unwrap();
+use snerd_rust::file_store::FileStore;
+use snerd_rust::queue::SnerdQueue;
+use snerd_rust::rate_limiter::RateLimiter;
+use snerd_rust::task::RetryableTask;
+use std::time::Duration;
+
+#[tokio::main]
+async fn main() {
+    // ONE queue for the whole app
+    let file_store = FileStore::new(".snerdata/tasks/tasks.log").unwrap();
+    let queue = SnerdQueue::new(
+        "main",
+        file_store,
+        RateLimiter::new(&std::path::PathBuf::from(".snerdata")),
+    );
+
+    // Job type #1: image processing
+    queue.register_task_handler("process_image", |data| {
+        println!("Processing image: {}", data);
+        Ok(())
+    }).await;
+
+    // Job type #2: OTP emails — same queue
+    queue.register_task_handler("send_otp_email", |data| {
+        println!("Sending OTP: {}", data);
+        Ok(())
+    }).await;
+
+    queue.start_processor(Duration::from_secs(2)).await;
+
+    // Both job types flow through the exact same queue
+    queue.enqueue(RetryableTask::new(
+        "img-1".to_string(), "process_image".to_string(),
+        r#"{"image_id": "abc123"}"#.to_string(),
+        3, 0.5, None, None, None, None, None, None, None, None,
+    )).unwrap();
+
+    queue.enqueue(RetryableTask::new(
+        "otp-1".to_string(), "send_otp_email".to_string(),
+        r#"{"to": "john@wick.com"}"#.to_string(),
+        3, 0.5, None, None, None, None, None, None, None, None,
+    )).unwrap();
+
+    // ONE dashboard shows every job type
+    queue.start_dashboard(9090);
+
+    tokio::time::sleep(Duration::from_secs(10)).await;
+}
 ```
+
+All job types share everything: the same persistent job log, retry/DLQ pipeline, rate-limit state, stats — and one dashboard at `http://localhost:9090` showing all of them.
+
+### 🚫 Same storage twice = fails fast
+
+`SnerdQueue::new` takes an **exclusive OS-level lock** on the storage file. A second queue on the same storage fails instead of silently double-executing your tasks:
+
+```rust
+let store1 = FileStore::new(".snerdata/tasks/tasks.log").unwrap();
+let first = SnerdQueue::new("main", store1, RateLimiter::new(&std::path::PathBuf::from(".snerdata"))); // ✅
+
+let store2 = FileStore::new(".snerdata/tasks/tasks.log").unwrap();
+let second = SnerdQueue::new("other", store2, RateLimiter::new(&std::path::PathBuf::from(".snerdata"))); // ❌ panics:
+// "[Snerd] ERROR: Another queue instance is already running on storage ..."
+```
+
+This applies across processes too — a second process pointed at the same log file also fails to start its queue.
+
+### 🔀 Need multiple queues? Give each one its own storage
+
+```rust
+let images = SnerdQueue::new(
+    "images",
+    FileStore::new(".snerdata-images/tasks.log").unwrap(),
+    RateLimiter::new(&std::path::PathBuf::from(".snerdata-images")),
+);
+let emails = SnerdQueue::new(
+    "emails",
+    FileStore::new(".snerdata-emails/tasks.log").unwrap(),
+    RateLimiter::new(&std::path::PathBuf::from(".snerdata-emails")),
+);
+
+images.start_dashboard(9090); // separate dashboards, so separate ports
+emails.start_dashboard(9091);
+```
+
+Now you have two fully independent engines: separate job logs, separate rate-limit state, separate dashboards. Only split when you actually need isolation (different cadence, different retention, independent monitoring) — otherwise the singleton is simpler and recommended.
+
+---
+
+## 🌍 Advanced: Distributed Scaling
+
+A queue instance exclusively owns its storage file: `SnerdQueue::new` takes an OS-level lock (`<tasks.log>.lock`) and holds it for the queue's lifetime. A second queue pointed at the same file — in the same process or on another server — panics instead of racing it and double-executing tasks.
+
+Scaling out therefore means **one queue per server**, each with its own `FileStore`. Your load balancer routes requests across servers, and every server processes the tasks it enqueued:
+
+```rust
+// Each server runs its own queue on its own log file (local disk works fine)
+let file_store = FileStore::new("/var/data/snerd/tasks.log").unwrap();
+```
+
+A shared network drive (AWS EFS or NFS) is still a good home for that log when a single instance needs durable storage — e.g. a container that restarts but must keep its queue state. OS-level file locking keeps writes safe.
 
 ---
 
@@ -231,7 +332,7 @@ let file_store = FileStore::new("/mnt/aws-efs-shared-drive/snerd_tasks.log").unw
 
 | API | Description |
 |---|---|
-| `SnerdQueue::new(name, file_store, rate_limiter)` | Create a queue from a persistence store and rate limiter. Cheap to `.clone()` (shared state). |
+| `SnerdQueue::new(name, file_store, rate_limiter)` | Create a queue from a persistence store and rate limiter. Cheap to `.clone()` (shared state). Panics if another queue instance already owns the storage file. |
 | `queue.enqueue(task)` | Enqueue a task. Due tasks execute immediately on background tokio tasks; the rest are picked up by the processor loop. |
 | `queue.register_task_handler(type, handler)` | Register `Fn(String) -> Result<(), String>` for a task type (runs on a blocking worker). |
 | `queue.register_max_retry_handler(type, handler)` | Register the Dead-Letter handler for a task type. |
